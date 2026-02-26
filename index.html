@@ -97,6 +97,34 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
 .modal-btn.cancel{background:var(--surface2);color:var(--text2);}
 .loading{text-align:center;padding:60px 20px;color:var(--text3);font-family:'Rajdhani',sans-serif;letter-spacing:3px;font-size:13px;}
 .empty{text-align:center;padding:60px 20px;color:var(--text3);font-size:12px;}
+
+/* スケルトンUI */
+@keyframes skeleton-wave {
+  0%{background-position:200% center}
+  100%{background-position:-200% center}
+}
+.skeleton{
+  background:linear-gradient(90deg,var(--surface2) 25%,var(--surface3) 50%,var(--surface2) 75%);
+  background-size:200% 100%;
+  animation:skeleton-wave 1.5s ease infinite;
+  border-radius:var(--radius-sm);
+}
+.sk-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:11px 12px;margin-bottom:7px;position:relative;overflow:hidden;}
+.sk-card::before{content:'';position:absolute;top:0;left:0;width:3px;height:100%;background:var(--text3);}
+.sk-row1{display:flex;justify-content:space-between;margin-bottom:8px;}
+.sk-date{height:10px;width:30%;}
+.sk-kishu{height:16px;width:55%;margin-top:6px;}
+.sk-kosshi{height:22px;width:70px;}
+.sk-divider{height:1px;background:var(--border);margin:8px 0;}
+.sk-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;}
+.sk-stat{background:var(--surface2);border-radius:6px;padding:5px 6px;}
+.sk-stat-label{height:8px;width:60%;margin-bottom:6px;}
+.sk-stat-val{height:12px;width:80%;}
+/* サマリーバースケルトン */
+.sk-sb{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px;}
+.sk-sb-item{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:10px;text-align:center;}
+.sk-sb-label{height:9px;width:70%;margin:0 auto 6px;}
+.sk-sb-val{height:14px;width:60%;margin:0 auto;}
 .kg{color:#ff6bff;}.kb{color:var(--accent);}.ko{color:var(--green);}.kw{color:var(--warn);}.kn{color:var(--red);}.warn{color:var(--warn);}
 
 /* 設定タブ */
@@ -397,7 +425,14 @@ async function loadRecords() {
   try {
     const res  = await fetch(GAS_URL + '?action=records&limit=200', {redirect:'follow'});
     const data = await res.json();
-    if (data.success) { ALL_RECORDS = data.records; showCount = PAGE_SIZE; buildFilters(); render(); }
+    if (data.success) {
+      ALL_RECORDS = data.records;
+      showCount = PAGE_SIZE;
+      // 全タブをダーティにして現在タブのみ再描画
+      Object.keys(tabDirty).forEach(k => { tabDirty[k] = true; });
+      buildFilters();
+      tabDirty.records = false; render();
+    }
   } catch(e) {
     document.getElementById('records-list').innerHTML = '<div class="empty">データ取得失敗<br>更新ボタンを押してください</div>';
     document.getElementById('header-sub').textContent = '取得失敗';
@@ -416,14 +451,58 @@ function loadCache() {
     return JSON.parse(raw).data;
   } catch(e) { return null; }
 }
+// 現在表示中のメインタブを追跡（初期値はホーム）
+let currentTab = 'home';
+
+// タブごとに「要再描画」フラグを管理（データ更新時にセット）
+const tabDirty = { home: true, analysis: true, records: true, setting: true };
+
+// データ適用：グローバル変数を更新し、現在のタブのみ再描画
 function applyData(data) {
   MASTERS     = {shops: data.shops, kishus: data.kishus, uchis: data.uchis};
   ALL_RECORDS = data.records;
   showCount   = PAGE_SIZE;
+  // 全タブをダーティにする（次に開いた時に再描画）
+  Object.keys(tabDirty).forEach(k => { tabDirty[k] = true; });
+  // フィルターは記録タブ用（軽量なので常に更新）
   buildFilters();
-  render();
-  renderSetting();
-  renderHome();
+  // 現在表示中のタブだけ即座に描画
+  renderCurrentTab();
+}
+
+// 現在表示中のタブを描画
+function renderCurrentTab() {
+  if (currentTab === 'home')     { renderHome();     tabDirty.home     = false; }
+  if (currentTab === 'records')  { render();         tabDirty.records  = false; }
+  if (currentTab === 'analysis') { renderAnalysis(); tabDirty.analysis = false; }
+  if (currentTab === 'setting')  { renderSetting();  tabDirty.setting  = false; }
+}
+
+// スケルトンUIを表示（キャッシュなし時の初回ロード用）
+function showSkeleton() {
+  // サマリーバーのスケルトン
+  const sb = document.getElementById('sb-count');
+  if (sb) sb.textContent = '—';
+  document.getElementById('sb-total').textContent   = '—';
+  document.getElementById('sb-winrate').textContent = '—';
+
+  // 記録リストのスケルトンカードを3枚表示
+  const list = document.getElementById('records-list');
+  const skCard = () => `
+    <div class="sk-card">
+      <div class="sk-row1">
+        <div style="flex:1">
+          <div class="skeleton sk-date"></div>
+          <div class="skeleton sk-kishu"></div>
+        </div>
+        <div><div class="skeleton sk-kosshi"></div></div>
+      </div>
+      <div class="sk-divider"></div>
+      <div class="sk-stats">
+        ${Array(6).fill(0).map(()=>`<div class="sk-stat"><div class="skeleton sk-stat-label"></div><div class="skeleton sk-stat-val"></div></div>`).join('')}
+      </div>
+    </div>`;
+  list.innerHTML = skCard() + skCard() + skCard();
 }
 
 async function loadInit() {
@@ -433,7 +512,8 @@ async function loadInit() {
     applyData(cache);
     document.getElementById('header-sub').textContent += ' （更新中...）';
   } else {
-    document.getElementById('records-list').innerHTML = '<div class="loading">LOADING...</div>';
+    // キャッシュなし時はスケルトンUIを表示
+    showSkeleton();
     document.getElementById('header-sub').textContent = '読み込み中...';
   }
   // バックグラウンドでGASから最新取得
@@ -460,11 +540,17 @@ function buildFilters() {
   uBar.innerHTML = '';
   mBar.innerHTML = '';
   uchis.forEach(u => {
-    const c = makeChip(u === 'all' ? 'ALL' : u, u === filterUchi, () => { filterUchi = u; buildFilters(); showCount = PAGE_SIZE; render(); });
+    const c = makeChip(u === 'all' ? 'ALL' : u, u === filterUchi, () => {
+      filterUchi = u; buildFilters(); showCount = PAGE_SIZE;
+      tabDirty.records = false; render(); // フィルター変更→即時描画
+    });
     uBar.appendChild(c);
   });
   months.forEach(m => {
-    const c = makeChip(m === 'all' ? 'ALL' : m.replace('-','年')+'月', m === filterMonth, () => { filterMonth = m; buildFilters(); showCount = PAGE_SIZE; render(); });
+    const c = makeChip(m === 'all' ? 'ALL' : m.replace('-','年')+'月', m === filterMonth, () => {
+      filterMonth = m; buildFilters(); showCount = PAGE_SIZE;
+      tabDirty.records = false; render(); // フィルター変更→即時描画
+    });
     c.dataset.val = m;
     mBar.appendChild(c);
   });
@@ -588,8 +674,10 @@ document.getElementById('delete-btn').onclick = () => {
     currentRecord = null;
     // キャッシュ更新
     saveCache({shops: MASTERS.shops, kishus: MASTERS.kishus, uchis: MASTERS.uchis, records: ALL_RECORDS});
+    // 全タブをダーティにして現在タブのみ再描画
+    Object.keys(tabDirty).forEach(k => { tabDirty[k] = true; });
     buildFilters();
-    render();
+    tabDirty.records = false; render();
   });
 };
 
@@ -606,13 +694,16 @@ let rankPeriod = 'all';
 // タブ切り替え
 // =============================================
 function switchTab(tab) {
+  currentTab = tab;
   ['home','analysis','records','setting'].forEach(t => {
     document.getElementById('tab-'+t).classList.toggle('active', t === tab);
     document.getElementById('nav-'+t).classList.toggle('active', t === tab);
   });
-  if (tab === 'analysis') renderAnalysis();
-  if (tab === 'setting')  renderSetting();
-  if (tab === 'home')     renderHome();
+  // ダーティな場合のみ再描画（遅延レンダリング）
+  if (tab === 'home'     && tabDirty.home)     { renderHome();     tabDirty.home     = false; }
+  if (tab === 'analysis' && tabDirty.analysis) { renderAnalysis(); tabDirty.analysis = false; }
+  if (tab === 'records'  && tabDirty.records)  { render();         tabDirty.records  = false; }
+  if (tab === 'setting'  && tabDirty.setting)  { renderSetting();  tabDirty.setting  = false; }
 }
 
 // =============================================
@@ -749,6 +840,8 @@ function switchAnTab(tab) {
   document.querySelectorAll('.an-tab').forEach((el,i) => el.classList.toggle('active', tabs[i] === tab));
   document.querySelectorAll('.an-section').forEach(el => el.classList.remove('active'));
   document.getElementById('an-'+tab).classList.add('active');
+  // サブタブ切り替え時は常に描画（サブタブを変えたということはコンテンツを見たいから）
+  tabDirty.analysis = false;
   renderAnalysis();
 }
 
@@ -1370,6 +1463,8 @@ async function saveMaster(key, data) {
     });
     // キャッシュ更新
     saveCache({shops: MASTERS.shops, kishus: MASTERS.kishus, uchis: MASTERS.uchis, records: ALL_RECORDS});
+    // 設定タブを即再描画（他タブはダーティのまま）
+    tabDirty.setting = false;
   } catch(e) {}
 }
 
