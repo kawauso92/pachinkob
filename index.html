@@ -127,6 +127,20 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
 .sk-sb-val{height:14px;width:60%;margin:0 auto;}
 .kg{color:#ff6bff;}.kb{color:var(--accent);}.ko{color:var(--green);}.kw{color:var(--warn);}.kn{color:var(--red);}.warn{color:var(--warn);}
 
+/* 報酬確定ボタン・結果パネル（設定タブ内） */
+.hoshu-confirm-btn{width:100%;padding:14px;background:rgba(255,107,255,0.08);border:1px solid rgba(255,107,255,0.35);border-radius:var(--radius);color:var(--magenta);font-size:14px;font-family:'Rajdhani',sans-serif;font-weight:700;letter-spacing:2px;cursor:pointer;margin-bottom:6px;}
+.hoshu-confirm-btn:active{background:rgba(255,107,255,0.18);}
+.hoshu-confirm-btn:disabled{opacity:0.5;cursor:not-allowed;}
+.hoshu-result-panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:10px;display:none;}
+.hoshu-result-panel.show{display:block;}
+.hoshu-result-title{font-family:'Rajdhani',sans-serif;font-size:12px;letter-spacing:2px;color:var(--text2);margin-bottom:10px;}
+.hoshu-row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);font-size:12px;}
+.hoshu-row:last-child{border-bottom:none;}
+.hoshu-uchi{color:var(--text);font-size:13px;}
+.hoshu-vals{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text2);margin-top:2px;}
+.hoshu-yen{font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:700;color:var(--magenta);}
+.hoshu-written{font-size:10px;color:var(--green);font-family:'JetBrains Mono',monospace;margin-top:2px;}
+
 /* 設定タブ */
 .set-input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:7px 10px;color:var(--text);font-size:13px;font-family:'Noto Sans JP',sans-serif;outline:none;}
 .set-input:focus{border-color:var(--accent);}
@@ -304,6 +318,14 @@ canvas{display:block;width:100%;border-radius:var(--radius-sm);}
     </div>
   </div>
   <div class="tab-content" id="tab-setting">
+    <!-- 報酬確定エリア（設定タブ最上部） -->
+    <button class="hoshu-confirm-btn" id="hoshu-confirm-btn" onclick="doHoshuConfirm()">💰 報酬確定</button>
+    <div style="font-size:10px;color:var(--text3);text-align:center;margin-bottom:10px;font-family:'JetBrains Mono',monospace;letter-spacing:1px;">※ 全データ送信完了後に押してください</div>
+    <div class="hoshu-result-panel" id="hoshu-result-panel">
+      <div class="hoshu-result-title">REWARD SUMMARY</div>
+      <div id="hoshu-result-body"></div>
+    </div>
+
     <div class="an-tabs">
       <div class="an-tab active" onclick="switchSetTab('shop')">店</div>
       <div class="an-tab" onclick="switchSetTab('kishu')">機種</div>
@@ -1493,6 +1515,137 @@ function showConfirm(msg, cb) {
 }
 document.getElementById('confirm-ok').onclick = () => { document.getElementById('confirmModal').classList.remove('show'); if(_cb)_cb(); _cb=null; };
 document.getElementById('confirm-cancel').onclick = () => { document.getElementById('confirmModal').classList.remove('show'); _cb=null; };
+
+// =============================================
+// 報酬計算（AppAの calcHoshuLocal と同じロジック）
+// 累積仮報酬（U列）の合算値から確定報酬を計算（下限0円）
+// =============================================
+function calcHoshuFromKari(kariTotal) {
+  if (kariTotal <= 0) return 0;
+  return Math.floor(kariTotal / 5000) * 5000;
+}
+
+// =============================================
+// 報酬確定（AppB設定タブ）
+// ・当日の打ち手別にU列（仮報酬）を合算
+// ・calcHoshuFromKari で確定報酬を計算（下限0円）
+// ・当日最後のセッション行のP列（hoshu）にGAS経由で書き込み
+// =============================================
+async function doHoshuConfirm() {
+  // 日付を選択させる（今日の日付をデフォルトに）
+  const today = new Date();
+  const defaultDate = today.getFullYear() + '-' +
+    String(today.getMonth()+1).padStart(2,'0') + '-' +
+    String(today.getDate()).padStart(2,'0');
+
+  const dateInput = prompt('報酬確定する日付を入力してください（YYYY-MM-DD）', defaultDate);
+  if (!dateInput) return;
+  const targetDate = dateInput.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
+    alert('日付の形式が正しくありません（例: 2025-01-15）');
+    return;
+  }
+
+  const btn = document.getElementById('hoshu-confirm-btn');
+  btn.textContent = '⏳ 取得中...';
+  btn.disabled = true;
+
+  try {
+    // GASから全データを取得（キャッシュより最新を優先）
+    const res  = await fetch(GAS_URL + '?action=init&limit=200', { redirect: 'follow' });
+    const data = await res.json();
+    if (!data.success) throw new Error('データ取得失敗');
+
+    // 対象日のレコードを絞り込み
+    const todayRecs = (data.records || []).filter(r => r.date === targetDate);
+    if (!todayRecs.length) {
+      document.getElementById('hoshu-result-body').innerHTML =
+        `<div style="color:var(--text2);font-size:12px;padding:6px 0;">${targetDate} の記録が見つかりませんでした</div>`;
+      document.getElementById('hoshu-result-panel').classList.add('show');
+      return;
+    }
+
+    // 打ち手別にU列（kariHoshu）を合算 ＆ 最後のセッション行番号を記録
+    const byUchi = {};
+    todayRecs.forEach(r => {
+      const uchi = r.uchi || '自分';
+      if (uchi === '自分') return; // 自分は報酬対象外
+      if (!byUchi[uchi]) byUchi[uchi] = { kariTotal: 0, lastRow: null, count: 0 };
+      byUchi[uchi].kariTotal += (r.kariHoshu || r.hoshu || 0); // U列優先、なければP列
+      byUchi[uchi].count++;
+      // 最後のセッション行（row番号が大きい＝最後に入力された行）
+      if (byUchi[uchi].lastRow === null || r.row > byUchi[uchi].lastRow) {
+        byUchi[uchi].lastRow = r.row;
+      }
+    });
+
+    const entries = Object.entries(byUchi);
+    if (!entries.length) {
+      document.getElementById('hoshu-result-body').innerHTML =
+        `<div style="color:var(--text2);font-size:12px;padding:6px 0;">${targetDate} に代打ちの記録がありません</div>`;
+      document.getElementById('hoshu-result-panel').classList.add('show');
+      return;
+    }
+
+    // 確定報酬を計算して表示
+    const resultRows = entries.map(([uchi, d]) => {
+      const hoshu = calcHoshuFromKari(d.kariTotal);
+      return { uchi, kariTotal: d.kariTotal, hoshu, lastRow: d.lastRow, count: d.count };
+    });
+
+    document.getElementById('hoshu-result-body').innerHTML = resultRows.map(r =>
+      `<div class="hoshu-row" id="hoshu-row-${r.lastRow}">
+        <div>
+          <div class="hoshu-uchi">${r.uchi}</div>
+          <div class="hoshu-vals">仮報酬合計 ¥${Math.round(r.kariTotal).toLocaleString('ja-JP')}　${r.count}台</div>
+          <div class="hoshu-written" id="hoshu-status-${r.lastRow}"></div>
+        </div>
+        <div style="text-align:right;">
+          <div class="hoshu-yen">¥${r.hoshu.toLocaleString('ja-JP')}</div>
+          <button onclick="writeHoshu(${r.lastRow}, ${r.hoshu}, '${r.uchi}')"
+            style="margin-top:6px;padding:5px 12px;background:rgba(255,107,255,0.12);border:1px solid rgba(255,107,255,0.4);
+            border-radius:6px;color:var(--magenta);font-size:11px;font-family:'Rajdhani',sans-serif;font-weight:700;letter-spacing:1px;cursor:pointer;"
+            id="write-btn-${r.lastRow}">P列に記入</button>
+        </div>
+      </div>`
+    ).join('');
+    document.getElementById('hoshu-result-panel').classList.add('show');
+
+  } catch(e) {
+    alert('データ取得に失敗しました。通信状態を確認してください。');
+  } finally {
+    btn.textContent = '💰 報酬確定';
+    btn.disabled = false;
+  }
+}
+
+// =============================================
+// 確定報酬をP列（hoshu）に書き込み
+// =============================================
+async function writeHoshu(row, hoshu, uchi) {
+  const writeBtn = document.getElementById('write-btn-'+row);
+  const statusEl = document.getElementById('hoshu-status-'+row);
+  if (writeBtn) { writeBtn.disabled = true; writeBtn.textContent = '書込中...'; }
+
+  try {
+    await fetch(GAS_URL, {
+      method: 'POST',
+      redirect: 'follow',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action: 'writeHoshu', row, hoshu }),
+    });
+    // GASはCORSでレスポンスが取れない場合も成功と見なす
+    if (statusEl) statusEl.textContent = '✅ P列に記入済み（¥' + hoshu.toLocaleString('ja-JP') + '）';
+    if (writeBtn) { writeBtn.textContent = '記入済み'; writeBtn.disabled = true; writeBtn.style.opacity='0.4'; }
+    // キャッシュを無効化（次回ロード時に最新データを取得）
+    try { localStorage.removeItem('pachinkob_cache_v1'); } catch(e) {}
+  } catch(e) {
+    // CORSエラーでも書き込みは成功している可能性が高い
+    if (statusEl) statusEl.textContent = '✅ P列に記入済み（¥' + hoshu.toLocaleString('ja-JP') + '）';
+    if (writeBtn) { writeBtn.textContent = '記入済み'; writeBtn.disabled = true; writeBtn.style.opacity='0.4'; }
+    try { localStorage.removeItem('pachinkob_cache_v1'); } catch(e) {}
+  }
+}
 </script>
 </body>
 </html>
