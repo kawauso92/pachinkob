@@ -609,7 +609,7 @@ function makeCard(r) {
     {label:'総回転',   val: r.soKaiten ? Math.round(r.soKaiten).toLocaleString('ja-JP')+'回' : '—', cls:'info'},
     {label:'回転率',   val: r.kaitenRitsu ? r.kaitenRitsu+'回/千円' : '—', cls:''},
     {label:'差玉',     val: r.sagitama != null ? (r.sagitama>=0?'+':'')+Math.round(r.sagitama).toLocaleString('ja-JP')+'玉' : '—', cls: signCls(r.sagitama)},
-    {label:'運(%)',    val: r.un != null ? Math.round(r.un)+'%' : '—', cls: (r.un||0)>=100?'pos':(r.un||0)>=70?'':'neg'},
+    {label:'運(%)',    val: normalizeUn(r.un) != null ? Math.round(normalizeUn(r.un))+'%' : '—', cls: (normalizeUn(r.un)||0)>=100?'pos':(normalizeUn(r.un)||0)>=70?'':'neg'},
   ];
   card.innerHTML = `
     <div class="rc-row1">
@@ -648,7 +648,7 @@ function openDetail(r) {
     {label:'総回転',     val: r.soKaiten ? Math.round(r.soKaiten).toLocaleString('ja-JP')+'回':'—', cls:'info'},
     {label:'回転率',     val: r.kaitenRitsu ? r.kaitenRitsu+'回/千円':'—', cls:'info'},
     {label:'ボーダー',   val: r.border ? r.border+'回/千円':'—', cls:''},
-    {label:'運(%)',      val: r.un!=null ? Math.round(r.un)+'%':'—', cls:(r.un||0)>=100?'pos':(r.un||0)>=70?'':'neg'},
+    {label:'運(%)',      val: normalizeUn(r.un)!=null ? Math.round(normalizeUn(r.un))+'%':'—', cls:(normalizeUn(r.un)||0)>=100?'pos':(normalizeUn(r.un)||0)>=70?'':'neg'},
     {label:'報酬',       val: r.hoshu ? '¥'+Math.round(r.hoshu).toLocaleString('ja-JP'):'¥0', cls:'pos'},
   ];
   document.getElementById('detail-grid').innerHTML = items.map(i =>
@@ -685,6 +685,16 @@ function fmtYen(v) { if (v==null||v==='') return '—'; return (v>=0?'+':'')+Mat
 function fmtKitai(v) { if (v==null||v==='') return '—'; return (v>=0?'+':'')+Math.round(v).toLocaleString('ja-JP')+'円'; }
 function signCls(v) { if (v==null||v==='') return ''; return v>=0?'pos':'neg'; }
 function kitaiCls(v) { if (v==null||v==='') return ''; if(v>=3000)return 'kg'; if(v>=2500)return 'kb'; if(v>=2000)return 'ko'; if(v>=1500)return 'kw'; return 'kn'; }
+
+// 運%正規化：スプシから小数（例:1.05）で来た場合は×100して整数相当に変換
+// 整数（例:105）の場合はそのまま返す
+function normalizeUn(v) {
+  if (v == null || v === '') return null;
+  const n = parseFloat(v);
+  if (isNaN(n)) return null;
+  // 10未満の小数値（0.xx〜9.xx）は明らかに×100が必要
+  return n < 10 ? n * 100 : n;
+}
 
 let _cb = null;
 let currentAnTab = 'monthly';
@@ -815,7 +825,7 @@ function renderHomeSummary() {
   const shigoto  = recs.reduce((s,r) => s+(r.shigoto||0), 0);
   const days     = new Set(recs.map(r=>r.date)).size;
   let unW=0, unV=0;
-  recs.forEach(r => { if(r.un!=null&&r.un!==''){const m=jikanToMin(r.jikan);unW+=m;unV+=r.un*m;} });
+  recs.forEach(r => { const un=normalizeUn(r.un); if(un!=null){const m=jikanToMin(r.jikan);unW+=m;unV+=un*m;} });
   const avgUn = unW ? Math.round(unV/unW) : null;
 
   el.innerHTML = `
@@ -904,7 +914,8 @@ function renderMonthly() {
     d.count++;
     if ((r.kosshi||0) > 0) d.wins++;
     if (r.kitaiJikyu != null && r.kitaiJikyu !== '') { d.kitaiW += min; d.kitaiV += r.kitaiJikyu * min; }
-    if (r.un         != null && r.un         !== '') { d.unW    += min; d.unV    += r.un         * min; }
+    const un = normalizeUn(r.un);
+    if (un != null) { d.unW += min; d.unV += un * min; }
   });
 
   const months = Object.keys(byMonth).sort().reverse();
@@ -957,7 +968,8 @@ function renderKishu() {
     d.count++;
     if ((r.kosshi||0) > 0) d.wins++;
     if (r.kitaiJikyu  != null && r.kitaiJikyu  !== '') { d.kitaiW  += min; d.kitaiV  += r.kitaiJikyu  * min; }
-    if (r.un          != null && r.un          !== '') { d.unW     += min; d.unV     += r.un          * min; }
+    const un_k = normalizeUn(r.un);
+    if (un_k != null) { d.unW += min; d.unV += un_k * min; }
     if (r.kaitenRitsu != null && r.kaitenRitsu !== '') { d.kaitenW += min; d.kaitenV += r.kaitenRitsu * min; }
   });
 
@@ -1012,7 +1024,8 @@ function renderUchi() {
     d.count++;
     if ((r.kosshi||0) > 0) d.wins++;
     if (r.kitaiJikyu != null && r.kitaiJikyu !== '') { d.kitaiW += min; d.kitaiV += r.kitaiJikyu * min; }
-    if (r.un         != null && r.un         !== '') { d.unW    += min; d.unV    += r.un         * min; }
+    const un_u = normalizeUn(r.un);
+    if (un_u != null) { d.unW += min; d.unV += un_u * min; }
   });
 
   const entries = Object.entries(map).sort((a,b) => b[1].count - a[1].count);
@@ -1159,21 +1172,21 @@ function renderOverall() {
   renderKitaiList('rank-kitai-kishu', toKitaiEntries(byKishu));
   renderKitaiList('rank-kitai-shop',  toKitaiEntries(byShop));
 
-  // 運%分布（加重平均）
-  const unRecs = ALL_RECORDS.filter(r => r.un != null && r.un !== '');
+  // 運%分布（加重平均）※小数値（例:1.05）は正規化して使用
+  const unRecs = ALL_RECORDS.filter(r => normalizeUn(r.un) != null);
   if (!unRecs.length) return;
   let unW = 0, unV = 0;
-  unRecs.forEach(r => { const min = jikanToMin(r.jikan); unW += min; unV += r.un * min; });
+  unRecs.forEach(r => { const un=normalizeUn(r.un); const min = jikanToMin(r.jikan); unW += min; unV += un * min; });
   const avg = unW ? unV / unW : 0;
-  const over100 = unRecs.filter(r=>r.un>=100).length;
-  const under70 = unRecs.filter(r=>r.un<70).length;
+  const over100 = unRecs.filter(r=>normalizeUn(r.un)>=100).length;
+  const under70 = unRecs.filter(r=>normalizeUn(r.un)<70).length;
   document.getElementById('un-summary').innerHTML = [
     {label:'平均運%',   val: Math.round(avg)+'%', cls: avg>=100?'pos':avg>=70?'':'neg'},
     {label:'100%超え',  val: over100+'件 ('+Math.round(over100/unRecs.length*100)+'%)', cls:'pos'},
     {label:'70%未満',   val: under70+'件 ('+Math.round(under70/unRecs.length*100)+'%)', cls:'neg'},
   ].map(i=>`<div class="detail-item"><div class="detail-label">${i.label}</div><div class="detail-val ${i.cls}" style="font-size:12px;">${i.val}</div></div>`).join('');
   const bins = Array(10).fill(0);
-  unRecs.forEach(r => { bins[Math.min(9,Math.max(0,Math.floor(r.un/20)))]++; });
+  unRecs.forEach(r => { const un=normalizeUn(r.un); bins[Math.min(9,Math.max(0,Math.floor(un/20)))]++; });
   const maxBin = Math.max(...bins, 1);
   const colors = ['#ff4466','#ff4466','#ff4466','#c8b400','#c8b400','#39ff6e','#00d4ff','#00d4ff','#ff6bff','#ff6bff'];
   document.getElementById('un-dist').innerHTML = bins.map((b,i) =>
