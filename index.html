@@ -127,7 +127,7 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
 .sk-sb-val{height:14px;width:60%;margin:0 auto;}
 .kg{color:#ff6bff;}.kb{color:var(--accent);}.ko{color:var(--green);}.kw{color:var(--warn);}.kn{color:var(--red);}.warn{color:var(--warn);}
 
-/* 報酬確定ボタン・結果パネル（設定タブ内） */
+/* 報酬タブ */
 .hoshu-confirm-btn{width:100%;padding:14px;background:rgba(255,107,255,0.08);border:1px solid rgba(255,107,255,0.35);border-radius:var(--radius);color:var(--magenta);font-size:14px;font-family:'Rajdhani',sans-serif;font-weight:700;letter-spacing:2px;cursor:pointer;margin-bottom:6px;}
 .hoshu-confirm-btn:active{background:rgba(255,107,255,0.18);}
 .hoshu-confirm-btn:disabled{opacity:0.5;cursor:not-allowed;}
@@ -140,6 +140,8 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
 .hoshu-vals{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text2);margin-top:2px;}
 .hoshu-yen{font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:700;color:var(--magenta);}
 .hoshu-written{font-size:10px;color:var(--green);font-family:'JetBrains Mono',monospace;margin-top:2px;}
+.hoshu-delete-btn{background:none;border:1px solid rgba(255,68,102,0.3);border-radius:6px;padding:4px 8px;color:var(--red);font-size:10px;font-family:'JetBrains Mono',monospace;cursor:pointer;margin-top:4px;}
+.hoshu-delete-btn:active{background:rgba(255,68,102,0.15);}
 
 /* 設定タブ */
 .set-input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:7px 10px;color:var(--text);font-size:13px;font-family:'Noto Sans JP',sans-serif;outline:none;}
@@ -317,15 +319,18 @@ canvas{display:block;width:100%;border-radius:var(--radius-sm);}
       </div>
     </div>
   </div>
-  <div class="tab-content" id="tab-setting">
-    <!-- 報酬確定エリア（設定タブ最上部） -->
+  <!-- 報酬タブ -->
+  <div class="tab-content" id="tab-hoshu">
     <button class="hoshu-confirm-btn" id="hoshu-confirm-btn" onclick="doHoshuConfirm()">💰 報酬確定</button>
     <div style="font-size:10px;color:var(--text3);text-align:center;margin-bottom:10px;font-family:'JetBrains Mono',monospace;letter-spacing:1px;">※ 全データ送信完了後に押してください</div>
     <div class="hoshu-result-panel" id="hoshu-result-panel">
       <div class="hoshu-result-title">REWARD SUMMARY</div>
       <div id="hoshu-result-body"></div>
     </div>
+  </div>
 
+  <!-- マスタタブ -->
+  <div class="tab-content" id="tab-master">
     <div class="an-tabs">
       <div class="an-tab active" onclick="switchSetTab('shop')">店</div>
       <div class="an-tab" onclick="switchSetTab('kishu')">機種</div>
@@ -410,7 +415,8 @@ canvas{display:block;width:100%;border-radius:var(--radius-sm);}
   <button class="nav-btn active" id="nav-home"     onclick="switchTab('home')"><div class="icon">🏠</div><div>ホーム</div></button>
   <button class="nav-btn" id="nav-analysis" onclick="switchTab('analysis')"><div class="icon">📊</div><div>分析</div></button>
   <button class="nav-btn" id="nav-records"  onclick="switchTab('records')"><div class="icon">📋</div><div>記録</div></button>
-  <button class="nav-btn" id="nav-setting"  onclick="switchTab('setting')"><div class="icon">⚙️</div><div>設定</div></button>
+  <button class="nav-btn" id="nav-hoshu"    onclick="switchTab('hoshu')"><div class="icon">💰</div><div>報酬</div></button>
+  <button class="nav-btn" id="nav-master"   onclick="switchTab('master')"><div class="icon">⚙️</div><div>マスタ</div></button>
 </div>
 <div class="detail-overlay" id="detailOverlay" onclick="closeDetail(event)">
   <div class="detail-panel">
@@ -477,7 +483,7 @@ function loadCache() {
 let currentTab = 'home';
 
 // タブごとに「要再描画」フラグを管理（データ更新時にセット）
-const tabDirty = { home: true, analysis: true, records: true, setting: true };
+const tabDirty = { home: true, analysis: true, records: true, master: true };
 
 // データ適用：グローバル変数を更新し、現在のタブのみ再描画
 function applyData(data) {
@@ -497,7 +503,7 @@ function renderCurrentTab() {
   if (currentTab === 'home')     { renderHome();     tabDirty.home     = false; }
   if (currentTab === 'records')  { render();         tabDirty.records  = false; }
   if (currentTab === 'analysis') { renderAnalysis(); tabDirty.analysis = false; }
-  if (currentTab === 'setting')  { renderSetting();  tabDirty.setting  = false; }
+  if (currentTab === 'master')   { renderSetting();  tabDirty.master   = false; }
 }
 
 // スケルトンUIを表示（キャッシュなし時の初回ロード用）
@@ -727,7 +733,7 @@ let rankPeriod = 'all';
 // =============================================
 function switchTab(tab) {
   currentTab = tab;
-  ['home','analysis','records','setting'].forEach(t => {
+  ['home','analysis','records','hoshu','master'].forEach(t => {
     document.getElementById('tab-'+t).classList.toggle('active', t === tab);
     document.getElementById('nav-'+t).classList.toggle('active', t === tab);
   });
@@ -735,7 +741,7 @@ function switchTab(tab) {
   if (tab === 'home'     && tabDirty.home)     { renderHome();     tabDirty.home     = false; }
   if (tab === 'analysis' && tabDirty.analysis) { renderAnalysis(); tabDirty.analysis = false; }
   if (tab === 'records'  && tabDirty.records)  { render();         tabDirty.records  = false; }
-  if (tab === 'setting'  && tabDirty.setting)  { renderSetting();  tabDirty.setting  = false; }
+  if (tab === 'master'   && tabDirty.master)   { renderSetting();  tabDirty.master   = false; }
 }
 
 // =============================================
@@ -1235,8 +1241,8 @@ async function loadMasters() {
 function switchSetTab(tab) {
   currentSetTab = tab;
   const tabs = ['shop','kishu','uchi'];
-  document.querySelectorAll('#tab-setting .an-tab').forEach((el,i) => el.classList.toggle('active', tabs[i] === tab));
-  document.querySelectorAll('#tab-setting .an-section').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('#tab-master .an-tab').forEach((el,i) => el.classList.toggle('active', tabs[i] === tab));
+  document.querySelectorAll('#tab-master .an-section').forEach(el => el.classList.remove('active'));
   document.getElementById('set-'+tab).classList.add('active');
   renderSetting();
 }
@@ -1498,8 +1504,8 @@ async function saveMaster(key, data) {
     });
     // キャッシュ更新
     saveCache({shops: MASTERS.shops, kishus: MASTERS.kishus, uchis: MASTERS.uchis, records: ALL_RECORDS});
-    // 設定タブを即再描画（他タブはダーティのまま）
-    tabDirty.setting = false;
+    // マスタタブを即再描画（他タブはダーティのまま）
+    tabDirty.master = false;
   } catch(e) {}
 }
 
@@ -1526,13 +1532,18 @@ function calcHoshuFromKari(kariTotal) {
 }
 
 // =============================================
-// 報酬確定（AppB設定タブ）
+// 報酬確定（報酬タブ）
 // ・当日の打ち手別にU列（仮報酬）を合算
 // ・calcHoshuFromKari で確定報酬を計算（下限0円）
-// ・当日最後のセッション行のP列（hoshu）にGAS経由で書き込み
+// ・全打ち手分を自動でP列（hoshu）にまとめて書き込み
+// ・結果は削除ボタン付きで表示（削除はUI上のみ、スプシ連動なし）
 // =============================================
+
+// 報酬結果の履歴をメモリで管理
+let hoshuResults = [];
+
 async function doHoshuConfirm() {
-  // 日付を選択させる（今日の日付をデフォルトに）
+  // 今日の日付をデフォルトに
   const today = new Date();
   const defaultDate = today.getFullYear() + '-' +
     String(today.getMonth()+1).padStart(2,'0') + '-' +
@@ -1551,7 +1562,7 @@ async function doHoshuConfirm() {
   btn.disabled = true;
 
   try {
-    // GASから全データを取得（キャッシュより最新を優先）
+    // GASから最新データを取得
     const res  = await fetch(GAS_URL + '?action=init&limit=200', { redirect: 'follow' });
     const data = await res.json();
     if (!data.success) throw new Error('データ取得失敗');
@@ -1559,9 +1570,7 @@ async function doHoshuConfirm() {
     // 対象日のレコードを絞り込み
     const todayRecs = (data.records || []).filter(r => r.date === targetDate);
     if (!todayRecs.length) {
-      document.getElementById('hoshu-result-body').innerHTML =
-        `<div style="color:var(--text2);font-size:12px;padding:6px 0;">${targetDate} の記録が見つかりませんでした</div>`;
-      document.getElementById('hoshu-result-panel').classList.add('show');
+      alert(targetDate + ' の記録が見つかりませんでした');
       return;
     }
 
@@ -1571,9 +1580,9 @@ async function doHoshuConfirm() {
       const uchi = r.uchi || '自分';
       if (uchi === '自分') return; // 自分は報酬対象外
       if (!byUchi[uchi]) byUchi[uchi] = { kariTotal: 0, lastRow: null, count: 0 };
-      byUchi[uchi].kariTotal += (r.kariHoshu || r.hoshu || 0); // U列優先、なければP列
+      byUchi[uchi].kariTotal += (r.kariHoshu || r.hoshu || 0);
       byUchi[uchi].count++;
-      // 最後のセッション行（row番号が大きい＝最後に入力された行）
+      // row番号が大きい＝最後に入力された行
       if (byUchi[uchi].lastRow === null || r.row > byUchi[uchi].lastRow) {
         byUchi[uchi].lastRow = r.row;
       }
@@ -1581,35 +1590,43 @@ async function doHoshuConfirm() {
 
     const entries = Object.entries(byUchi);
     if (!entries.length) {
-      document.getElementById('hoshu-result-body').innerHTML =
-        `<div style="color:var(--text2);font-size:12px;padding:6px 0;">${targetDate} に代打ちの記録がありません</div>`;
-      document.getElementById('hoshu-result-panel').classList.add('show');
+      alert(targetDate + ' に代打ちの記録がありません');
       return;
     }
 
-    // 確定報酬を計算して表示
-    const resultRows = entries.map(([uchi, d]) => {
-      const hoshu = calcHoshuFromKari(d.kariTotal);
-      return { uchi, kariTotal: d.kariTotal, hoshu, lastRow: d.lastRow, count: d.count };
-    });
+    // 確定報酬を計算
+    const newRows = entries.map(([uchi, d]) => ({
+      id:        Date.now() + '_' + uchi, // 削除用の一意ID
+      date:      targetDate,
+      uchi,
+      kariTotal: d.kariTotal,
+      hoshu:     calcHoshuFromKari(d.kariTotal),
+      lastRow:   d.lastRow,
+      count:     d.count,
+      written:   false,
+    }));
 
-    document.getElementById('hoshu-result-body').innerHTML = resultRows.map(r =>
-      `<div class="hoshu-row" id="hoshu-row-${r.lastRow}">
-        <div>
-          <div class="hoshu-uchi">${r.uchi}</div>
-          <div class="hoshu-vals">仮報酬合計 ¥${Math.round(r.kariTotal).toLocaleString('ja-JP')}　${r.count}台</div>
-          <div class="hoshu-written" id="hoshu-status-${r.lastRow}"></div>
-        </div>
-        <div style="text-align:right;">
-          <div class="hoshu-yen">¥${r.hoshu.toLocaleString('ja-JP')}</div>
-          <button onclick="writeHoshu(${r.lastRow}, ${r.hoshu}, '${r.uchi}')"
-            style="margin-top:6px;padding:5px 12px;background:rgba(255,107,255,0.12);border:1px solid rgba(255,107,255,0.4);
-            border-radius:6px;color:var(--magenta);font-size:11px;font-family:'Rajdhani',sans-serif;font-weight:700;letter-spacing:1px;cursor:pointer;"
-            id="write-btn-${r.lastRow}">P列に記入</button>
-        </div>
-      </div>`
-    ).join('');
-    document.getElementById('hoshu-result-panel').classList.add('show');
+    // 全打ち手分を自動でP列に書き込み
+    btn.textContent = '⏳ 書込中...';
+    await Promise.all(newRows.map(async r => {
+      try {
+        await fetch(GAS_URL, {
+          method: 'POST', redirect: 'follow',
+          headers: { 'Content-Type': 'text/plain' },
+          body: JSON.stringify({ action: 'writeHoshu', row: r.lastRow, hoshu: r.hoshu }),
+        });
+        r.written = true;
+      } catch(e) {
+        r.written = true; // CORSエラーでも書き込み成功とみなす
+      }
+    }));
+
+    // キャッシュ無効化（次回ロード時に最新データを取得）
+    try { localStorage.removeItem('pachinkob_cache_v1'); } catch(e) {}
+
+    // 結果を履歴の先頭に追加して表示更新
+    hoshuResults = newRows.concat(hoshuResults);
+    renderHoshuResults();
 
   } catch(e) {
     alert('データ取得に失敗しました。通信状態を確認してください。');
@@ -1620,31 +1637,37 @@ async function doHoshuConfirm() {
 }
 
 // =============================================
-// 確定報酬をP列（hoshu）に書き込み
+// 報酬結果一覧を描画（削除ボタン付き）
 // =============================================
-async function writeHoshu(row, hoshu, uchi) {
-  const writeBtn = document.getElementById('write-btn-'+row);
-  const statusEl = document.getElementById('hoshu-status-'+row);
-  if (writeBtn) { writeBtn.disabled = true; writeBtn.textContent = '書込中...'; }
-
-  try {
-    await fetch(GAS_URL, {
-      method: 'POST',
-      redirect: 'follow',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ action: 'writeHoshu', row, hoshu }),
-    });
-    // GASはCORSでレスポンスが取れない場合も成功と見なす
-    if (statusEl) statusEl.textContent = '✅ P列に記入済み（¥' + hoshu.toLocaleString('ja-JP') + '）';
-    if (writeBtn) { writeBtn.textContent = '記入済み'; writeBtn.disabled = true; writeBtn.style.opacity='0.4'; }
-    // キャッシュを無効化（次回ロード時に最新データを取得）
-    try { localStorage.removeItem('pachinkob_cache_v1'); } catch(e) {}
-  } catch(e) {
-    // CORSエラーでも書き込みは成功している可能性が高い
-    if (statusEl) statusEl.textContent = '✅ P列に記入済み（¥' + hoshu.toLocaleString('ja-JP') + '）';
-    if (writeBtn) { writeBtn.textContent = '記入済み'; writeBtn.disabled = true; writeBtn.style.opacity='0.4'; }
-    try { localStorage.removeItem('pachinkob_cache_v1'); } catch(e) {}
+function renderHoshuResults() {
+  const panel = document.getElementById('hoshu-result-panel');
+  const body  = document.getElementById('hoshu-result-body');
+  if (!hoshuResults.length) {
+    panel.classList.remove('show');
+    return;
   }
+  panel.classList.add('show');
+  body.innerHTML = hoshuResults.map(r =>
+    `<div class="hoshu-row" id="hoshu-row-${r.id}">
+      <div style="flex:1;">
+        <div class="hoshu-uchi">${r.uchi}</div>
+        <div class="hoshu-vals">${r.date}　仮報酬合計 ¥${Math.round(r.kariTotal).toLocaleString('ja-JP')}　${r.count}台</div>
+        <div class="hoshu-written">${r.written ? '✅ P列に書込済み' : ''}</div>
+        <button class="hoshu-delete-btn" onclick="deleteHoshuResult('${r.id}')">🗑 削除</button>
+      </div>
+      <div class="hoshu-yen">¥${r.hoshu.toLocaleString('ja-JP')}</div>
+    </div>`
+  ).join('');
+}
+
+// =============================================
+// 報酬結果をUI上から削除（スプシ連動なし）
+// =============================================
+function deleteHoshuResult(id) {
+  showConfirm('この報酬結果をリストから削除しますか？\n（スプシのデータは変更されません）', () => {
+    hoshuResults = hoshuResults.filter(r => r.id !== id);
+    renderHoshuResults();
+  });
 }
 </script>
 </body>
