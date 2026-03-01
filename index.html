@@ -143,6 +143,10 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
 .hoshu-delete-btn{background:none;border:1px solid rgba(255,68,102,0.3);border-radius:6px;padding:4px 8px;color:var(--red);font-size:10px;font-family:'JetBrains Mono',monospace;cursor:pointer;margin-top:4px;}
 .hoshu-delete-btn:active{background:rgba(255,68,102,0.15);}
 
+/* 機種マスタ メーカーフィルタ */
+.maker-filter-row{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;flex-wrap:nowrap;}
+.maker-filter-row::-webkit-scrollbar{display:none;}
+
 /* 設定タブ */
 .set-input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:7px 10px;color:var(--text);font-size:13px;font-family:'Noto Sans JP',sans-serif;outline:none;}
 .set-input:focus{border-color:var(--accent);}
@@ -363,9 +367,28 @@ canvas{display:block;width:100%;border-radius:var(--radius-sm);}
     <div class="an-section" id="set-kishu">
       <div class="an-card" id="set-kishu-form">
         <div class="an-card-title" id="set-kishu-form-title">新規追加</div>
-        <div style="margin-bottom:10px;">
-          <div class="detail-label">機種名</div>
-          <input class="set-input" id="kishu-name" type="text" placeholder="機種名" style="width:100%;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
+          <div>
+            <div class="detail-label">機種名</div>
+            <input class="set-input" id="kishu-name" type="text" placeholder="機種名" style="width:100%;">
+          </div>
+          <div>
+            <div class="detail-label">メーカー</div>
+            <select class="set-input" id="kishu-maker" style="width:100%;">
+              <option value="">未設定</option>
+              <option value="SANKYO">SANKYO</option>
+              <option value="京楽">京楽</option>
+              <option value="ニューギン">ニューギン</option>
+              <option value="SANYO">SANYO</option>
+              <option value="平和">平和</option>
+              <option value="サミー">サミー</option>
+              <option value="SanseiR&D">SanseiR&D</option>
+              <option value="DAIICHI">DAIICHI</option>
+              <option value="藤商事">藤商事</option>
+              <option value="大都技研">大都技研</option>
+              <option value="その他">その他</option>
+            </select>
+          </div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:8px;">
           <div><div class="detail-label">平均出玉</div><input class="set-input" id="kishu-heikin" type="number" placeholder="0"></div>
@@ -382,6 +405,8 @@ canvas{display:block;width:100%;border-radius:var(--radius-sm);}
           <button class="set-btn-cancel" onclick="cancelSetEdit('kishu')">キャンセル</button>
         </div>
       </div>
+      <!-- メーカーフィルタチップス -->
+      <div id="set-kishu-maker-filter" style="margin-bottom:6px;"></div>
       <div class="an-card" id="set-kishu-list"></div>
     </div>
 
@@ -1229,6 +1254,7 @@ let currentSetTab = 'shop';
 let editingShopIdx  = null;
 let editingKishuIdx = null;
 let editingUchiIdx  = null;
+let currentMakerFilter = 'all'; // 機種マスタ メーカーフィルタ
 
 async function loadMasters() {
   try {
@@ -1333,25 +1359,56 @@ function buildRoundsGrid() {
 }
 
 function renderKishuList() {
+  // メーカーフィルタチップス描画
+  const filterEl = document.getElementById('set-kishu-maker-filter');
+  if (filterEl) {
+    const allMakers = [...new Set(MASTERS.kishus.map(k => k.maker || '').filter(Boolean))];
+    const chips = ['all', ...allMakers];
+    filterEl.innerHTML = allMakers.length
+      ? `<div class="maker-filter-row">${chips.map(m =>
+          `<div class="chip ${currentMakerFilter===m?'active':''}" onclick="setMakerFilter('${m}')">${m==='all'?'すべて':m}</div>`
+        ).join('')}</div>`
+      : '';
+  }
+
   const el = document.getElementById('set-kishu-list');
-  if (!MASTERS.kishus.length) { el.innerHTML = '<div class="empty" style="padding:16px">データなし</div><button class="set-btn-add" onclick="newKishu()">＋ 機種を追加</button>'; return; }
-  el.innerHTML = MASTERS.kishus.map((k,i) => `
-    <div class="set-row ${editingKishuIdx===i?'selected':''}">
-      <div class="set-row-name">
-        <div>${k.name}</div>
-        <div class="set-row-sub">初当 1/${k.hatsua} 平連 ${k.heiren} 平均出玉 ${k.heikin}</div>
-      </div>
-      <div class="set-row-actions">
-        <button class="set-icon-btn edit" onclick="editKishu(${i})">編集</button>
-        <button class="set-icon-btn del"  onclick="deleteKishu(${i})">削除</button>
-      </div>
-    </div>`).join('') + `<button class="set-btn-add" onclick="newKishu()">＋ 機種を追加</button>`;
+  // フィルタ適用（実インデックスを保持）
+  const filtered = MASTERS.kishus
+    .map((k, i) => ({k, i}))
+    .filter(({k}) => currentMakerFilter === 'all' || k.maker === currentMakerFilter);
+
+  // 「＋ 機種を追加」ボタンを先頭に配置
+  let html = `<button class="set-btn-add" onclick="newKishu()" style="margin-bottom:6px;">＋ 機種を追加</button>`;
+  if (!filtered.length) {
+    html += '<div class="empty" style="padding:16px">データなし</div>';
+  } else {
+    html += filtered.map(({k, i}) => `
+      <div class="set-row ${editingKishuIdx===i?'selected':''}">
+        <div class="set-row-name">
+          <div>${k.name}</div>
+          <div class="set-row-sub">${k.maker ? k.maker+' / ' : ''}初当 1/${k.hatsua} 平連 ${k.heiren} 平均出玉 ${k.heikin}</div>
+        </div>
+        <div class="set-row-actions">
+          <button class="set-icon-btn edit" onclick="editKishu(${i})">編集</button>
+          <button class="set-icon-btn del"  onclick="deleteKishu(${i})">削除</button>
+        </div>
+      </div>`).join('');
+  }
+  el.innerHTML = html;
+}
+
+// メーカーフィルタ切替
+function setMakerFilter(maker) {
+  currentMakerFilter = maker;
+  renderKishuList();
 }
 
 function clearKishuForm() {
   ['kishu-name','kishu-heikin','kishu-total','kishu-total1r','kishu-jikan','kishu-hatsua','kishu-heiren'].forEach(id => {
     document.getElementById(id).value = '';
   });
+  const makerEl = document.getElementById('kishu-maker');
+  if (makerEl) makerEl.value = '';
   for (let i=0;i<10;i++) {
     const b = document.getElementById('r-balls-'+i);
     const c = document.getElementById('r-count-'+i);
@@ -1377,6 +1434,8 @@ function editKishu(i) {
   document.getElementById('kishu-jikan').value  = k.jikan;
   document.getElementById('kishu-hatsua').value = k.hatsua;
   document.getElementById('kishu-heiren').value = k.heiren;
+  const makerEl = document.getElementById('kishu-maker');
+  if (makerEl) makerEl.value = k.maker || '';
   (k.rounds||[]).forEach((r,j) => {
     const b = document.getElementById('r-balls-'+j);
     const c = document.getElementById('r-count-'+j);
@@ -1404,8 +1463,10 @@ async function saveKishu() {
     const cnt   = parseFloat(document.getElementById('r-count-'+i).value);
     if (balls > 0 && cnt > 0) rounds.push({balls, name: cnt+'R'});
   }
+  const makerEl = document.getElementById('kishu-maker');
   const obj = {
     name,
+    maker:   makerEl ? makerEl.value || '' : '',
     heikin:  parseFloat(document.getElementById('kishu-heikin').value)||0,
     total:   parseFloat(document.getElementById('kishu-total').value)||0,
     total1R: parseFloat(document.getElementById('kishu-total1r').value)||0,
@@ -1414,8 +1475,11 @@ async function saveKishu() {
     heiren:  parseFloat(document.getElementById('kishu-heiren').value)||0,
     rounds,
   };
-  if (editingKishuIdx !== null) MASTERS.kishus[editingKishuIdx] = obj;
-  else MASTERS.kishus.push(obj);
+  if (editingKishuIdx !== null) {
+    MASTERS.kishus[editingKishuIdx] = obj; // 編集時は上書き
+  } else {
+    MASTERS.kishus.unshift(obj); // 新規追加は先頭に
+  }
   await saveMaster('kishus', MASTERS.kishus);
   editingKishuIdx = null;
   document.getElementById('set-kishu-form-title').textContent = '新規追加';
