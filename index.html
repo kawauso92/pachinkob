@@ -1587,18 +1587,20 @@ document.getElementById('confirm-ok').onclick = () => { document.getElementById(
 document.getElementById('confirm-cancel').onclick = () => { document.getElementById('confirmModal').classList.remove('show'); _cb=null; };
 
 // =============================================
-// 報酬計算（AppAの calcHoshuLocal と同じロジック）
-// 累積仮報酬（U列）の合算値から確定報酬を計算（下限0円）
+// 報酬計算（2段階制：期待時給で単価判定）
+// 差玉合計と平均期待時給から確定報酬を計算
 // =============================================
-function calcHoshuFromKari(kariTotal) {
-  if (kariTotal <= 0) return 0;
-  return Math.floor(kariTotal / 5000) * 5000;
+function calcHoshuFromSagitama(sagitamaTotal, kitaiJikyuAvg) {
+  if (sagitamaTotal < 5000) return 0;
+  const tanka = (kitaiJikyuAvg >= 2000) ? 5000 : 3000;
+  const steps = Math.floor(sagitamaTotal / 5000);
+  return steps * tanka;
 }
 
 // =============================================
 // 報酬確定（報酬タブ）
-// ・当日の打ち手別にU列（仮報酬）を合算
-// ・calcHoshuFromKari で確定報酬を計算（下限0円）
+// ・当日の打ち手別に差玉（O列）と期待時給（H列）を集計
+// ・期待時給2000円以上→5千円単価、未満→3千円単価で確定報酬を計算
 // ・全打ち手分を自動でP列（hoshu）にまとめて書き込み
 // ・結果は削除ボタン付きで表示（削除はUI上のみ、スプシ連動なし）
 // =============================================
@@ -1638,13 +1640,17 @@ async function doHoshuConfirm() {
       return;
     }
 
-    // 打ち手別にU列（kariHoshu）を合算 ＆ 最後のセッション行番号を記録
+    // 打ち手別に差玉・期待時給を集計 ＆ 最後のセッション行番号を記録
     const byUchi = {};
     todayRecs.forEach(r => {
       const uchi = r.uchi || '自分';
       if (uchi === '自分') return; // 自分は報酬対象外
-      if (!byUchi[uchi]) byUchi[uchi] = { kariTotal: 0, lastRow: null, count: 0 };
-      byUchi[uchi].kariTotal += (r.kariHoshu || r.hoshu || 0);
+      if (!byUchi[uchi]) byUchi[uchi] = { sagitamaTotal: 0, kitaiJikyuSum: 0, kitaiJikyuCount: 0, lastRow: null, count: 0 };
+      byUchi[uchi].sagitamaTotal += (r.sagitama || 0);
+      if (r.kitaiJikyu != null && r.kitaiJikyu !== '') {
+        byUchi[uchi].kitaiJikyuSum += r.kitaiJikyu;
+        byUchi[uchi].kitaiJikyuCount++;
+      }
       byUchi[uchi].count++;
       // row番号が大きい＝最後に入力された行
       if (byUchi[uchi].lastRow === null || r.row > byUchi[uchi].lastRow) {
@@ -1658,17 +1664,22 @@ async function doHoshuConfirm() {
       return;
     }
 
-    // 確定報酬を計算
-    const newRows = entries.map(([uchi, d]) => ({
-      id:        Date.now() + '_' + uchi, // 削除用の一意ID
-      date:      targetDate,
-      uchi,
-      kariTotal: d.kariTotal,
-      hoshu:     calcHoshuFromKari(d.kariTotal),
-      lastRow:   d.lastRow,
-      count:     d.count,
-      written:   false,
-    }));
+    // 確定報酬を計算（期待時給2000円以上→5千円単価、未満→3千円単価）
+    const newRows = entries.map(([uchi, d]) => {
+      const avgKitaiJikyu = d.kitaiJikyuCount > 0 ? d.kitaiJikyuSum / d.kitaiJikyuCount : 0;
+      const tanka = (avgKitaiJikyu >= 2000) ? 5000 : 3000;
+      return {
+        id:        Date.now() + '_' + uchi,
+        date:      targetDate,
+        uchi,
+        sagitamaTotal: d.sagitamaTotal,
+        tanka,
+        hoshu:     calcHoshuFromSagitama(d.sagitamaTotal, avgKitaiJikyu),
+        lastRow:   d.lastRow,
+        count:     d.count,
+        written:   false,
+      };
+    });
 
     // 全打ち手分を自動でP列に書き込み
     btn.textContent = '⏳ 書込中...';
@@ -1715,7 +1726,7 @@ function renderHoshuResults() {
     `<div class="hoshu-row" id="hoshu-row-${r.id}">
       <div style="flex:1;">
         <div class="hoshu-uchi">${r.uchi}</div>
-        <div class="hoshu-vals">${r.date}　仮報酬合計 ¥${Math.round(r.kariTotal).toLocaleString('ja-JP')}　${r.count}台</div>
+        <div class="hoshu-vals">${r.date}　差玉計 ${Math.round(r.sagitamaTotal).toLocaleString('ja-JP')}玉　×${r.tanka === 5000 ? '5千' : '3千'}　${r.count}台</div>
         <div class="hoshu-written">${r.written ? '✅ P列に書込済み' : ''}</div>
         <button class="hoshu-delete-btn" onclick="deleteHoshuResult('${r.id}')">🗑 削除</button>
       </div>
